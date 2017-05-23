@@ -1,0 +1,6 @@
+[package]
+name = "playfs"
+version = "0.1.0"
+authors = ["Minijackson <minijackson@riseup.net>"]
+
+[dependencies]
