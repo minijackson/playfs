@@ -1,18 +1,21 @@
+#![feature(type_ascription)]
+
 mod filesystem;
 use filesystem::Filesystem;
 
-extern crate fuse;
-
+extern crate fuse_mt;
 #[macro_use]
 extern crate log;
 extern crate simplelog;
+extern crate clap;
+extern crate rusqlite;
+extern crate time;
+extern crate libc;
 
 use simplelog::{Config, LogLevelFilter, TermLogger};
 
-extern crate clap;
 use clap::{Arg, App};
 
-extern crate rusqlite;
 use rusqlite::Connection;
 
 use std::env::home_dir;
@@ -59,5 +62,5 @@ fn main() {
 
     let fs = Filesystem::new(&db);
 
-    fuse::mount(fs, &mountpoint, &[]);
+    fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mountpoint, &[]).unwrap();
 }

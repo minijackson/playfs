@@ -4,8 +4,10 @@ version = "0.1.0"
 authors = ["Rémi NICOLE <minijackson@riseup.net>"]
 
 [dependencies]
-fuse = "0.3.0"
+fuse_mt = "0.3.0"
 rusqlite = "0.11.0"
 clap = "2.24.2"
 log = "0.3"
 simplelog = "0.4"
+time = "0.1.37"
+libc = "0.2.23"
