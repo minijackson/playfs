@@ -3,7 +3,7 @@
 mod filesystem;
 use filesystem::Filesystem;
 
-extern crate fuse_mt;
+extern crate fuse;
 #[macro_use]
 extern crate log;
 extern crate simplelog;
@@ -62,5 +62,5 @@ fn main() {
 
     let fs = Filesystem::new(&db);
 
-    fuse_mt::mount(fuse_mt::FuseMT::new(fs, 1), &mountpoint, &[]).unwrap();
+    fuse::mount(fs, &mountpoint, &[]).unwrap();
 }
