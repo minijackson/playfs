@@ -1,5 +1,4 @@
-use fuse;
-use fuse::{FileAttr, FileType, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
+use fuse::{self, FileAttr, FileType, ReplyAttr, ReplyDirectory, ReplyEntry, Request};
 
 use rusqlite::Connection;
 
@@ -11,8 +10,10 @@ use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone)]
 struct FSEntry {
     name: OsString,
+    inode: u64,
     time: Timespec,
     kind: FileType,
 }
@@ -28,15 +29,19 @@ impl Filesystem {
 
         let conn = Connection::open(db).expect("Could not open database");
 
-        let artists;
+        let mut cache;
 
         {
             let mut req = conn.prepare("SELECT DISTINCT albumartist FROM albums")
                 .unwrap();
 
-            artists = req.query_map(&[], |row| {
+            let mut count = 0;
+
+            let artists = req.query_map(&[], |row| {
+                    count += 1;
                     FSEntry {
                         name: OsString::from((row.get(0): String).replace("/", "_")),
+                        inode: count,
                         time: Timespec::new(1, 0),
                         kind: FileType::Directory,
                     }
@@ -44,11 +49,14 @@ impl Filesystem {
                 .unwrap()
                 .collect::<Result<_, _>>()
                 .unwrap();
+
+            cache = vec![(PathBuf::from("/"), artists)];
+            cache.reserve(count as usize + 1);
         }
 
         Self {
             conn: conn,
-            cache: vec![(PathBuf::from("/"), artists)],
+            cache: cache,
         }
     }
 
@@ -61,7 +69,9 @@ impl Filesystem {
     }
 
     pub fn get_ino_content(&mut self, ino: u64) -> Option<&Vec<FSEntry>> {
-            self.cache.get((ino - 1) as usize).map(|&(_, ref entries)| entries)
+        self.cache
+            .get((ino - 1) as usize)
+            .map(|&(_, ref entries)| entries)
     }
 
     pub fn path_from_ino(&self, ino: u64) -> Option<&Path> {
@@ -74,24 +84,31 @@ impl Filesystem {
 impl fuse::Filesystem for Filesystem {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 {
-            reply.entry(&Timespec::new(0, 0),
-                        &FileAttr {
-                            ino: 2,
-                            size: 0,
-                            blocks: 0,
-                            atime: Timespec::new(1, 0),
-                            mtime: Timespec::new(1, 0),
-                            ctime: Timespec::new(1, 0),
-                            crtime: Timespec::new(1, 0),
-                            kind: FileType::Directory,
-                            perm: 0o755,
-                            nlink: 0,
-                            uid: 1000,
-                            gid: 1000,
-                            rdev: 0,
-                            flags: 0,
-                        },
-                        0)
+            match self.get_ino_content(parent)
+                      .and_then(|entries| entries.iter().find(|entry| entry.name == name))
+                      .map(|entry| entry.inode) {
+                None => reply.error(ENOENT),
+                Some(inode) => {
+                    reply.entry(&Timespec::new(0, 0),
+                                &FileAttr {
+                                    ino: 2,
+                                    size: 0,
+                                    blocks: 0,
+                                    atime: Timespec::new(1, 0),
+                                    mtime: Timespec::new(1, 0),
+                                    ctime: Timespec::new(1, 0),
+                                    crtime: Timespec::new(1, 0),
+                                    kind: FileType::Directory,
+                                    perm: 0o755,
+                                    nlink: 0,
+                                    uid: 1000,
+                                    gid: 1000,
+                                    rdev: 0,
+                                    flags: 0,
+                                },
+                                0)
+                }
+            }
         } else {
             reply.error(ENOENT)
         }
@@ -101,7 +118,7 @@ impl fuse::Filesystem for Filesystem {
         if ino == 1 || ino == 2 {
             reply.attr(&Timespec::new(1, 0),
                        &FileAttr {
-                           ino: 1,
+                           ino: 2,
                            size: 0,
                            blocks: 0,
                            atime: Timespec::new(1, 0),
@@ -132,21 +149,20 @@ impl fuse::Filesystem for Filesystem {
 
         match self.get_ino_content(ino) {
             None => {
-                info!("No such directory to list");
+                info!("Trying to list nonexistant directory with inode: {:?}", ino);
                 reply.error(ENOENT)
             }
             Some(entries) => {
                 for entry in &entries[offset as usize..] {
-                    if !reply.add(offset + 2, offset, entry.kind, &entry.name) {
-                        info!("Added at offset {}: {:?}", offset, entry.name);
+                    if !reply.add(entry.inode, offset, entry.kind, &entry.name) {
+                        debug!("Added at offset {}: {:?}", offset, entry.name);
                         offset += 1;
                     } else {
-                        info!("Fill buffer full");
+                        debug!("Fill buffer full");
                         break;
                     }
                 }
 
-                info!("Replying ok");
                 reply.ok();
             }
         }
