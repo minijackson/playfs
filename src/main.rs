@@ -16,8 +16,6 @@ use simplelog::{Config, LogLevelFilter, TermLogger};
 
 use clap::{Arg, App};
 
-use rusqlite::Connection;
-
 use std::env::home_dir;
 use std::path::PathBuf;
 
